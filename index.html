@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Supabase Multiplayer Blocks</title>
+    <title>Supabase Multiplayer Blocks (p5.js)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
     <script type="module">
         import { createClient } from 'https://esm.sh/@supabase/supabase-js';
 
@@ -13,13 +14,12 @@
 
         let currentPlayer = null;
         let roomId = null;
+        let players = {};
 
-        // Gera um ID aleatório de 4 dígitos para a sala
         function generateRoomId() {
             return Math.floor(1000 + Math.random() * 9000);
         }
 
-        // Criar uma sala
         window.createRoom = async function () {
             const newRoomId = generateRoomId();
             const { error } = await supabase
@@ -31,15 +31,14 @@
                 console.error(error);
             } else {
                 roomId = newRoomId;
-                document.getElementById('room-id').textContent = `Sala criada: ID = ${roomId}`;
+                alert(`Sala criada: ${roomId}`);
             }
         };
 
-        // Entrar na sala
         window.joinRoom = async function () {
-            roomId = document.getElementById('input-room-id').value;
+            roomId = prompt("Digite o ID da sala:");
             if (!roomId || isNaN(roomId) || roomId.length !== 4) {
-                alert("Por favor, insira um ID de sala válido (4 números). ");
+                alert("Por favor, insira um ID de sala válido (4 números).");
                 return;
             }
 
@@ -63,6 +62,7 @@
             };
 
             room.players[currentPlayer.name] = currentPlayer;
+            players = room.players;
 
             const { error: updateError } = await supabase
                 .from('rooms')
@@ -75,15 +75,10 @@
                 return;
             }
 
-            alert(`Você entrou na sala como ${currentPlayer.name}`);
-            renderBlocks(room.players);
+            alert(`Você é ${currentPlayer.name}`);
             listenToRoom();
-
-            document.querySelectorAll('div, input, button').forEach(el => el.style.display = 'none');
-            document.getElementById('game-container').style.display = 'block';
         };
 
-        // Escutar mudanças na sala
         function listenToRoom() {
             supabase
                 .channel(`rooms:${roomId}`)
@@ -91,99 +86,71 @@
                     'postgres_changes',
                     { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
                     (payload) => {
-                        renderBlocks(payload.new.players);
+                        players = payload.new.players;
                     }
                 )
                 .subscribe();
         }
 
-        // Renderizar os blocos na tela
-        function renderBlocks(players) {
-            const container = document.getElementById('game-container');
-            container.innerHTML = '';
-
-            Object.values(players).forEach(player => {
-                const block = document.createElement('div');
-                block.className = 'block';
-                block.textContent = player.name;
-                block.style.left = player.x + 'px';
-                block.style.top = player.y + 'px';
-                container.appendChild(block);
-            });
-        }
-
-        // Atualiza apenas a posição do jogador atual
         async function updatePlayerPosition() {
-            const updates = { [`players.${currentPlayer.name}`]: currentPlayer };
-            const { error: updateError } = await supabase
-                .from('rooms')
-                .update(updates)
-                .eq('id', roomId);
-
-            if (updateError) {
-                console.error(updateError);
-            }
-        }
-
-        document.addEventListener('keydown', (event) => {
             if (!currentPlayer || !roomId) return;
 
-            switch (event.key) {
-                case 'ArrowUp':
-                    currentPlayer.y = Math.max(0, currentPlayer.y - 10);
-                    break;
-                case 'ArrowDown':
-                    currentPlayer.y = Math.min(450, currentPlayer.y + 10);
-                    break;
-                case 'ArrowLeft':
-                    currentPlayer.x = Math.max(0, currentPlayer.x - 10);
-                    break;
-                case 'ArrowRight':
-                    currentPlayer.x = Math.min(450, currentPlayer.x + 10);
-                    break;
-                default:
-                    return;
+            players[currentPlayer.name] = currentPlayer;
+
+            const { error } = await supabase
+                .from('rooms')
+                .update({ players })
+                .eq('id', roomId);
+
+            if (error) {
+                console.error(error);
+            }
+        }
+
+        let canvas;
+        const speed = 1;
+
+        window.setup = function () {
+            canvas = createCanvas(500, 500);
+            canvas.parent('game-container');
+            noStroke();
+        };
+
+        window.draw = function () {
+            background(200);
+
+            if (currentPlayer) {
+                if (keyIsDown(87)) currentPlayer.y = max(0, currentPlayer.y - speed); // W
+                if (keyIsDown(83)) currentPlayer.y = min(height - 50, currentPlayer.y + speed); // S
+                if (keyIsDown(65)) currentPlayer.x = max(0, currentPlayer.x - speed); // A
+                if (keyIsDown(68)) currentPlayer.x = min(width - 50, currentPlayer.x + speed); // D
+
+                updatePlayerPosition();
             }
 
-            updatePlayerPosition();
-        });
+            for (const player of Object.values(players)) {
+                fill(player.name === currentPlayer.name ? 'blue' : 'lightblue');
+                rect(player.x, player.y, 50, 50);
+                fill(0);
+                textSize(12);
+                textAlign(CENTER, CENTER);
+                text(player.name, player.x + 25, player.y + 25);
+            }
+        };
     </script>
     <style>
         #game-container {
             width: 500px;
             height: 500px;
+            margin: 0 auto;
             border: 1px solid black;
-            position: relative;
-            display: none; /* Esconde até entrar na sala */
-        }
-        .block {
-            width: 50px;
-            height: 50px;
-            position: absolute;
-            background-color: lightblue;
-            text-align: center;
-            line-height: 50px;
-            border: 1px solid blue;
         }
     </style>
 </head>
 <body>
-    <h1>Supabase Multiplayer Blocks</h1>
-
-    <!-- Criar sala -->
-    <div>
-        <button onclick="createRoom()">Criar Sala</button>
-        <p id="room-id"></p>
-    </div>
-
-    <!-- Entrar na sala -->
-    <div>
-        <h3>Entrar na Sala</h3>
-        <input type="text" id="input-room-id" placeholder="Insira o ID da Sala (4 números)">
-        <button onclick="joinRoom()">Entrar na Sala</button>
-    </div>
-
-    <!-- Container do Jogo -->
+    <h1>Multiplayer 👍</h1>
+    <button onclick="createRoom()">Criar Sala</button>
+    <button onclick="joinRoom()">Entrar na Sala</button>
     <div id="game-container"></div>
 </body>
 </html>
