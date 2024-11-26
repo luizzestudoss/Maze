@@ -7,25 +7,30 @@
     <script type="module">
         import { createClient } from 'https://esm.sh/@supabase/supabase-js';
 
-        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-        const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
+        const SUPABASE_URL = "https://wxvufbzwpipeajlymnoz.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4dnVmYnp3cGlwZWFqbHltbm96Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzI1ODM2ODgsImV4cCI6MjA0ODE1OTY4OH0.ZGa7xAG0GGW5JqLmqxkgbazsUo7lpHJZeIbj9PKJ4lI";
         const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
         let currentPlayer = null;
         let roomId = null;
 
+        // Gera um ID aleatório de 4 dígitos para a sala
+        function generateRoomId() {
+            return Math.floor(1000 + Math.random() * 9000);
+        }
+
         // Criar uma sala
         window.createRoom = async function () {
-            const { data, error } = await supabase
+            const newRoomId = generateRoomId();
+            const { error } = await supabase
                 .from('rooms')
-                .insert([{ players: [] }])
-                .select();
+                .insert([{ id: newRoomId, players: {} }]);
 
             if (error) {
                 alert("Erro ao criar sala: " + error.message);
                 console.error(error);
             } else {
-                roomId = data[0].id;
+                roomId = newRoomId;
                 document.getElementById('room-id').textContent = `Sala criada: ID = ${roomId}`;
             }
         };
@@ -33,12 +38,11 @@
         // Entrar na sala
         window.joinRoom = async function () {
             roomId = document.getElementById('input-room-id').value;
-            if (!roomId) {
-                alert("Por favor, insira um ID de sala válido.");
+            if (!roomId || isNaN(roomId) || roomId.length !== 4) {
+                alert("Por favor, insira um ID de sala válido (4 números). ");
                 return;
             }
 
-            // Obter dados da sala
             const { data: room, error: fetchError } = await supabase
                 .from('rooms')
                 .select('players')
@@ -51,19 +55,18 @@
                 return;
             }
 
-            // Adicionar o novo jogador
-            const newPlayer = {
-                name: `Player${room.players.length + 1}`,
-                x: Math.random() * 400, // Posição inicial aleatória
+            const newPlayerName = `Player${Object.keys(room.players).length + 1}`;
+            currentPlayer = {
+                name: newPlayerName,
+                x: Math.random() * 400,
                 y: Math.random() * 400
             };
-            currentPlayer = newPlayer;
 
-            const updatedPlayers = [...room.players, newPlayer];
+            room.players[currentPlayer.name] = currentPlayer;
 
             const { error: updateError } = await supabase
                 .from('rooms')
-                .update({ players: updatedPlayers })
+                .update({ players: room.players })
                 .eq('id', roomId);
 
             if (updateError) {
@@ -72,9 +75,12 @@
                 return;
             }
 
-            alert(`Você entrou na sala como ${newPlayer.name}`);
-            renderBlocks(updatedPlayers);
+            alert(`Você entrou na sala como ${currentPlayer.name}`);
+            renderBlocks(room.players);
             listenToRoom();
+
+            document.querySelectorAll('div, input, button').forEach(el => el.style.display = 'none');
+            document.getElementById('game-container').style.display = 'block';
         };
 
         // Escutar mudanças na sala
@@ -85,8 +91,7 @@
                     'postgres_changes',
                     { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
                     (payload) => {
-                        const players = payload.new.players;
-                        renderBlocks(players);
+                        renderBlocks(payload.new.players);
                     }
                 )
                 .subscribe();
@@ -95,9 +100,9 @@
         // Renderizar os blocos na tela
         function renderBlocks(players) {
             const container = document.getElementById('game-container');
-            container.innerHTML = ''; // Limpa os blocos anteriores
+            container.innerHTML = '';
 
-            players.forEach(player => {
+            Object.values(players).forEach(player => {
                 const block = document.createElement('div');
                 block.className = 'block';
                 block.textContent = player.name;
@@ -107,44 +112,41 @@
             });
         }
 
-        // Mover o bloco do jogador atual
-        window.moveBlock = async function (direction) {
-            if (!currentPlayer || !roomId) {
-                alert("Você precisa entrar na sala primeiro.");
-                return;
-            }
-
-            // Atualiza a posição do jogador atual
-            if (direction === 'up') currentPlayer.y -= 10;
-            if (direction === 'down') currentPlayer.y += 10;
-            if (direction === 'left') currentPlayer.x -= 10;
-            if (direction === 'right') currentPlayer.x += 10;
-
-            // Atualiza no Supabase
-            const { data: room, error: fetchError } = await supabase
-                .from('rooms')
-                .select('players')
-                .eq('id', roomId)
-                .single();
-
-            if (fetchError) {
-                console.error(fetchError);
-                return;
-            }
-
-            const updatedPlayers = room.players.map(player =>
-                player.name === currentPlayer.name ? currentPlayer : player
-            );
-
+        // Atualiza apenas a posição do jogador atual
+        async function updatePlayerPosition() {
+            const updates = { [`players.${currentPlayer.name}`]: currentPlayer };
             const { error: updateError } = await supabase
                 .from('rooms')
-                .update({ players: updatedPlayers })
+                .update(updates)
                 .eq('id', roomId);
 
             if (updateError) {
                 console.error(updateError);
             }
-        };
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (!currentPlayer || !roomId) return;
+
+            switch (event.key) {
+                case 'ArrowUp':
+                    currentPlayer.y = Math.max(0, currentPlayer.y - 10);
+                    break;
+                case 'ArrowDown':
+                    currentPlayer.y = Math.min(450, currentPlayer.y + 10);
+                    break;
+                case 'ArrowLeft':
+                    currentPlayer.x = Math.max(0, currentPlayer.x - 10);
+                    break;
+                case 'ArrowRight':
+                    currentPlayer.x = Math.min(450, currentPlayer.x + 10);
+                    break;
+                default:
+                    return;
+            }
+
+            updatePlayerPosition();
+        });
     </script>
     <style>
         #game-container {
@@ -152,6 +154,7 @@
             height: 500px;
             border: 1px solid black;
             position: relative;
+            display: none; /* Esconde até entrar na sala */
         }
         .block {
             width: 50px;
@@ -176,17 +179,8 @@
     <!-- Entrar na sala -->
     <div>
         <h3>Entrar na Sala</h3>
-        <input type="text" id="input-room-id" placeholder="Insira o ID da Sala">
+        <input type="text" id="input-room-id" placeholder="Insira o ID da Sala (4 números)">
         <button onclick="joinRoom()">Entrar na Sala</button>
-    </div>
-
-    <!-- Controles -->
-    <div>
-        <h3>Controles</h3>
-        <button onclick="moveBlock('up')">Cima</button>
-        <button onclick="moveBlock('down')">Baixo</button>
-        <button onclick="moveBlock('left')">Esquerda</button>
-        <button onclick="moveBlock('right')">Direita</button>
     </div>
 
     <!-- Container do Jogo -->
