@@ -5,4 +5,5 @@ function preload() {
 
 function draw() {
     image(img,0,0);
+    console.log(working)
 }
