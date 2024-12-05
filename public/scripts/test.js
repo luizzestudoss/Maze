@@ -5,11 +5,11 @@ function preload() {
 }
 
 function setup() {
-    createCanvas(400, 400); // Adiciona um canvas para desenhar a imagem
+    createCanvas(400, 400);
 }
 
 function draw() {
-    background(220); // Adiciona um fundo
+    background(220);
     image(img, 0, 0);
     console.log("working");
 }
